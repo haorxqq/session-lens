@@ -4,6 +4,8 @@ A local web viewer for **Claude Code** & **opencode** conversation history — b
 
 The command line makes it hard to revisit past AI coding conversations. `session-lens` reads your local session history from both Claude Code and opencode, presents it as a searchable list, and renders each conversation as a clean chat transcript.
 
+![session-lens screenshot](assets/screen.png)
+
 ## Features
 
 - **Two sources, one place** — aggregates Claude Code (`~/.claude/projects/*.jsonl`) and opencode (`~/.local/share/opencode/opencode.db`) sessions side by side.
