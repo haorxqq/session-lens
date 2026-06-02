@@ -149,7 +149,21 @@
     }
     .search-box input::placeholder { color: var(--text-dim); }
 
-    .project-filter {
+    .filter-group {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .filter-label {
+      flex-shrink: 0;
+      width: 46px;
+      padding-top: 3px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-dim);
+    }
+    .filter-chips {
+      flex: 1;
       display: flex;
       gap: 6px;
       flex-wrap: wrap;
@@ -644,8 +658,21 @@
         </svg>
         <input type="text" id="searchInput" placeholder="Search conversations..." oninput="filterSessions()" />
       </div>
-      <div class="project-filter" id="sourceFilter"></div>
-      <div class="project-filter" id="projectFilter"></div>
+      <div class="filter-group">
+        <span class="filter-label">Sort</span>
+        <div class="filter-chips" id="sortBar">
+          <span class="filter-chip active" data-sort="recent" onclick="setSort('recent')">Recent</span>
+          <span class="filter-chip" data-sort="msgs" onclick="setSort('msgs')">Most messages</span>
+        </div>
+      </div>
+      <div class="filter-group" id="sourceGroup">
+        <span class="filter-label">Source</span>
+        <div class="filter-chips" id="sourceFilter"></div>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">Project</span>
+        <div class="filter-chips" id="projectFilter"></div>
+      </div>
     </div>
     <div class="session-list" id="sessionList">
       <div class="loading"><div class="spinner"></div>Loading conversations...</div>
@@ -678,6 +705,7 @@
   let allSessions = [];
   let activeProject = 'all';
   let activeSource = 'all';
+  let activeSort = 'recent';  // 'recent' | 'msgs'
   let activeSessionId = null;
 
   const SOURCE_LABELS = { claude: 'Claude', opencode: 'opencode' };
@@ -747,9 +775,11 @@
     const sources = Object.keys(counts).sort();
     // Only show the source filter when more than one source is present
     const container = document.getElementById('sourceFilter');
-    if (sources.length < 2) { container.innerHTML = ''; return; }
+    const group = document.getElementById('sourceGroup');
+    if (sources.length < 2) { group.style.display = 'none'; return; }
+    group.style.display = '';
     container.innerHTML = `
-      <span class="filter-chip ${activeSource === 'all' ? 'active' : ''}" data-source="all" onclick="setSource('all')">All sources</span>
+      <span class="filter-chip ${activeSource === 'all' ? 'active' : ''}" data-source="all" onclick="setSource('all')">All</span>
       ${sources.map(src =>
         `<span class="filter-chip" data-source="${src}" onclick="setSource('${src}')">${SOURCE_LABELS[src] || src} (${counts[src]})</span>`
       ).join('')}
@@ -781,7 +811,7 @@
     const total = projects.reduce((sum, [, c]) => sum + c, 0);
     const container = document.getElementById('projectFilter');
     container.innerHTML = `
-      <span class="filter-chip ${activeProject === 'all' ? 'active' : ''}" data-project="all" onclick="setProject('all')">All projects (${total})</span>
+      <span class="filter-chip ${activeProject === 'all' ? 'active' : ''}" data-project="all" onclick="setProject('all')">All (${total})</span>
       ${projects.slice(0, 12).map(([p, c]) =>
         `<span class="filter-chip ${activeProject === p ? 'active' : ''}" data-project="${p}" onclick="setProject('${p}')">${escHtml(p)} (${c})</span>`
       ).join('')}
@@ -800,6 +830,14 @@
     renderSessionList();
   }
 
+  function setSort(sort) {
+    activeSort = sort;
+    document.querySelectorAll('#sortBar .filter-chip').forEach(el => {
+      el.classList.toggle('active', el.dataset.sort === sort);
+    });
+    renderSessionList();
+  }
+
   function getFilteredSessions() {
     const query = document.getElementById('searchInput').value.toLowerCase().trim();
     return allSessions.filter(s => {
@@ -812,6 +850,10 @@
 
   function renderSessionList() {
     const filtered = getFilteredSessions();
+    // 'recent' keeps the backend order (by last activity); 'msgs' sorts by message count desc
+    if (activeSort === 'msgs') {
+      filtered.sort((a, b) => b.msg_count - a.msg_count);
+    }
     const list = document.getElementById('sessionList');
     if (filtered.length === 0) {
       list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px;">No conversations found</div>`;
