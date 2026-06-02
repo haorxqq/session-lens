@@ -1,7 +1,9 @@
 import json
 import os
+import platform
 import re
 import shlex
+import shutil
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -12,8 +14,62 @@ app = Flask(__name__, static_folder=None)
 
 BASE_DIR = Path(__file__).resolve().parent
 
+# ── Platform detection ──
+SYSTEM = platform.system()  # 'Darwin', 'Windows', 'Linux'
+
+
+def _detect_wsl() -> bool:
+    """True when running inside Windows Subsystem for Linux."""
+    if SYSTEM != "Linux":
+        return False
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except OSError:
+        return False
+
+
+IS_WSL = _detect_wsl()
+
+# Claude Code stores per-project session files under ~/.claude/projects on every
+# platform; Path.home() resolves correctly on macOS, Linux/WSL and Windows.
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
-OPENCODE_DB = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
+
+
+def _resolve_opencode_db() -> Path:
+    """Locate the opencode SQLite DB across platforms.
+
+    Order: OPENCODE_DB env var → `opencode db path` (authoritative) → known
+    fallback locations (XDG on macOS/Linux, %LOCALAPPDATA% on Windows).
+    """
+    env = os.environ.get("OPENCODE_DB")
+    if env:
+        return Path(env)
+    try:
+        cmd = "opencode db path" if SYSTEM == "Windows" else ["opencode", "db", "path"]
+        out = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            shell=(SYSTEM == "Windows"),
+        )
+        path = out.stdout.strip().splitlines()[-1].strip() if out.stdout.strip() else ""
+        if path:
+            return Path(path)
+    except Exception:
+        pass
+    candidates = [Path.home() / ".local" / "share" / "opencode" / "opencode.db"]
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        candidates.append(Path(localappdata) / "opencode" / "opencode.db")
+        candidates.append(Path(localappdata) / "opencode" / "data" / "opencode.db")
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+
+OPENCODE_DB = _resolve_opencode_db()
 
 
 def ms_to_iso(ms) -> str:
@@ -435,10 +491,81 @@ def api_session_detail(session_id):
     )
 
 
-RESUME_CMD = {
-    "claude": lambda sid: f"claude --resume {shlex.quote(sid)}",
-    "opencode": lambda sid: f"opencode --session {shlex.quote(sid)}",
+# session IDs are uuid / ses_xxx — safe across shells, so no per-shell quoting
+RESUME_INNER = {
+    "claude": lambda sid: f"claude --resume {sid}",
+    "opencode": lambda sid: f"opencode --session {sid}",
 }
+
+
+def _build_command(source: str, sid: str, cwd: str, target: str) -> str:
+    """Build a `cd <cwd> && <resume>` command for the given shell target.
+
+    target: 'posix' (bash/zsh) or 'powershell'.
+    """
+    inner = RESUME_INNER[source](sid)
+    if not cwd:
+        return inner
+    if target == "powershell":
+        quoted = "'" + cwd.replace("'", "''") + "'"
+        return f"cd {quoted}; {inner}"
+    return f"cd {shlex.quote(cwd)} && {inner}"
+
+
+def launch_resume_terminal(source: str, sid: str, cwd: str) -> str:
+    """Open a new terminal window running the resume command.
+
+    Returns the command that was launched. Raises on failure.
+    """
+    if SYSTEM == "Darwin":
+        cmd = _build_command(source, sid, cwd, "posix")
+        esc = cmd.replace("\\", "\\\\").replace('"', '\\"')
+        script = (
+            'tell application "iTerm"\n'
+            "  activate\n"
+            "  create window with default profile\n"
+            "  tell current session of current window\n"
+            f'    write text "{esc}"\n'
+            "  end tell\n"
+            "end tell"
+        )
+        subprocess.run(
+            ["osascript", "-e", script],
+            check=True, capture_output=True, text=True, timeout=15,
+        )
+        return cmd
+
+    if SYSTEM == "Windows":
+        cmd = _build_command(source, sid, cwd, "powershell")
+        flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+        # Passing cmd as a single -Command arg lets Windows handle the quoting.
+        subprocess.Popen(
+            ["powershell", "-NoExit", "-Command", cmd],
+            creationflags=flags,
+        )
+        return cmd
+
+    if IS_WSL:
+        # From WSL, pop a Windows PowerShell window that re-enters WSL and runs it.
+        posix = _build_command(source, sid, cwd, "posix")
+        subprocess.Popen(
+            ["cmd.exe", "/c", "start", "powershell", "-NoExit", "-Command",
+             f'wsl.exe -e bash -lc "{posix}"'],
+        )
+        return posix
+
+    # Plain Linux: try common terminal emulators.
+    posix = _build_command(source, sid, cwd, "posix")
+    for term, args in (
+        ("x-terminal-emulator", ["-e", "bash", "-lc", posix]),
+        ("gnome-terminal", ["--", "bash", "-lc", posix]),
+        ("konsole", ["-e", "bash", "-lc", posix]),
+        ("xterm", ["-e", "bash", "-lc", posix]),
+    ):
+        if shutil.which(term):
+            subprocess.Popen([term] + args)
+            return posix
+    raise RuntimeError("No supported terminal emulator found")
 
 
 @app.route("/api/sessions/<session_id>/resume", methods=["POST"])
@@ -447,36 +574,18 @@ def api_session_resume(session_id):
     if not session:
         abort(404)
     source = session.get("source", "claude")
-    builder = RESUME_CMD.get(source)
-    if not builder:
+    if source not in RESUME_INNER:
         return jsonify({"ok": False, "message": f"Unsupported source: {source}"}), 400
 
     cwd = session.get("cwd", "")
-    inner = builder(session_id)
-    shell_cmd = f"cd {shlex.quote(cwd)} && {inner}" if cwd else inner
-
-    def osa_escape(s):
-        return s.replace("\\", "\\\\").replace('"', '\\"')
-
-    script = f'''
-tell application "iTerm"
-  activate
-  create window with default profile
-  tell current session of current window
-    write text "{osa_escape(shell_cmd)}"
-  end tell
-end tell'''
+    # Command we'd hand the user as a fallback (posix form is the common case).
+    fallback = _build_command(source, session_id, cwd, "posix")
     try:
-        subprocess.run(
-            ["osascript", "-e", script],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
+        command = launch_resume_terminal(source, session_id, cwd)
     except Exception as e:
-        return jsonify({"ok": False, "message": str(e), "command": shell_cmd}), 500
-    return jsonify({"ok": True, "command": shell_cmd})
+        # Return the command so the frontend can offer copy-to-clipboard.
+        return jsonify({"ok": False, "message": str(e), "command": fallback}), 500
+    return jsonify({"ok": True, "command": command})
 
 
 @app.route("/api/reload")

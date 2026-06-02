@@ -19,12 +19,9 @@ The command line makes it hard to revisit past AI coding conversations. `session
 ## Requirements
 
 - Python 3.10+ (uses `X | None` type syntax)
-- [Flask](https://flask.palletsprojects.com/)
-- macOS + [iTerm](https://iterm2.com/) for the "Continue in iTerm" button (the rest works anywhere)
+- [Flask](https://flask.palletsprojects.com/) — `pip install flask`
 
-```bash
-pip install flask
-```
+Works on **macOS, Linux, Windows, and WSL**. The browser UI is identical everywhere; only the "Continue in terminal" button is platform-specific (see below).
 
 ## Usage
 
@@ -32,16 +29,32 @@ pip install flask
 python app.py
 ```
 
-Then open http://localhost:5678
+Then open http://localhost:5678 — the app reads session files directly (nothing is copied or modified). Use the **Refresh** button to re-scan after new conversations.
 
-The app reads session files directly — nothing is copied or modified. Use the **Refresh** button to re-scan after new conversations.
+### Where data is read from
+
+- **Claude Code** — `~/.claude/projects/` (resolved via `Path.home()`, correct on every OS).
+- **opencode** — located automatically via `opencode db path`, then the `OPENCODE_DB` env var, then known fallbacks (`~/.local/share/opencode/opencode.db`, `%LOCALAPPDATA%\opencode\...` on Windows). Set `OPENCODE_DB` to override.
+
+> **Using WSL?** Run `python app.py` **inside WSL** — that's where your Claude/opencode data lives, and the Linux paths resolve correctly there. Open http://localhost:5678 in your Windows browser (WSL2 forwards localhost automatically).
+
+### "Continue in terminal" by platform
+
+| Platform | Opens in |
+|----------|----------|
+| macOS    | iTerm (via `osascript`) |
+| Windows  | a new PowerShell window |
+| WSL      | a Windows PowerShell window that re-enters WSL and runs the command |
+| Linux    | first available terminal (`gnome-terminal`, `konsole`, `xterm`, …) |
+
+If a terminal can't be launched, the command is **copied to your clipboard** instead, so you can paste and run it yourself.
 
 ## How it works
 
 - `app.py` — Flask backend. Scans both sources, normalizes them into a unified message format (`text` / `thinking` / `tool_use` / `tool_result` blocks), and exposes a small JSON API:
   - `GET /api/sessions` — session list metadata
   - `GET /api/sessions/<id>` — full conversation
-  - `POST /api/sessions/<id>/resume` — open the session in iTerm
+  - `POST /api/sessions/<id>/resume` — open the session in a terminal (platform-aware)
   - `GET /api/reload` — rebuild the in-memory cache
 - `index.html` — single-page frontend (no build step; dependencies loaded via CDN).
 

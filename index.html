@@ -656,7 +656,7 @@
     <div class="content-header" id="contentHeader" style="display:none">
       <div class="content-header-top">
         <h2 id="contentTitle"></h2>
-        <button class="resume-btn" id="resumeBtn" onclick="resumeSession()">▶ Continue in iTerm</button>
+        <button class="resume-btn" id="resumeBtn" onclick="resumeSession()">▶ Continue in terminal</button>
       </div>
       <div class="content-header-meta">
         <span id="contentProject"></span>
@@ -856,11 +856,19 @@
     try {
       const res = await fetch(`/api/sessions/${activeSessionId}/resume`, { method: 'POST' });
       const data = await res.json();
-      btn.textContent = data.ok ? '✓ Opened in iTerm' : '✗ Failed';
+      if (data.ok) {
+        btn.textContent = '✓ Opened in terminal';
+      } else if (data.command) {
+        // Couldn't open a terminal automatically — copy the command so the user can run it.
+        try { await navigator.clipboard.writeText(data.command); } catch (e) {}
+        btn.textContent = '✗ Copied command instead';
+      } else {
+        btn.textContent = '✗ Failed';
+      }
     } catch (e) {
       btn.textContent = '✗ Failed';
     }
-    setTimeout(() => { btn.disabled = false; btn.textContent = prev; }, 1800);
+    setTimeout(() => { btn.disabled = false; btn.textContent = prev; }, 2200);
   }
 
   async function openSession(id) {
