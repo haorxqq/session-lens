@@ -332,6 +332,20 @@
     }
     .resume-btn:hover { filter: brightness(1.08); }
     .resume-btn:disabled { opacity: 0.6; cursor: default; }
+    .copy-cmd-btn {
+      flex-shrink: 0;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .copy-cmd-btn:hover { color: var(--text); border-color: var(--accent); }
     .content-header-meta {
       display: flex;
       align-items: center;
@@ -683,6 +697,7 @@
     <div class="content-header" id="contentHeader" style="display:none">
       <div class="content-header-top">
         <h2 id="contentTitle"></h2>
+        <button class="copy-cmd-btn" id="copyCmdBtn" onclick="copyResumeCommand()" title="Copy the resume command to clipboard">📋 Copy command</button>
         <button class="resume-btn" id="resumeBtn" onclick="resumeSession()">▶ Continue in terminal</button>
       </div>
       <div class="content-header-meta">
@@ -888,6 +903,32 @@
       el.textContent = '✓ Copied';
       setTimeout(() => { el.textContent = prev; }, 1000);
     }).catch(() => {});
+  }
+
+  // POSIX-quote a string for a shell command (matches backend _build_command)
+  function shQuote(s) {
+    return "'" + String(s).replace(/'/g, "'\\''") + "'";
+  }
+
+  function buildResumeCommand(s) {
+    const inner = s.source === 'opencode'
+      ? `opencode --session ${s.id}`
+      : `claude --resume ${s.id}`;
+    return s.cwd ? `cd ${shQuote(s.cwd)} && ${inner}` : inner;
+  }
+
+  async function copyResumeCommand() {
+    const s = allSessions.find(x => x.id === activeSessionId);
+    if (!s) return;
+    const btn = document.getElementById('copyCmdBtn');
+    const prev = btn.textContent;
+    try {
+      await navigator.clipboard.writeText(buildResumeCommand(s));
+      btn.textContent = '✓ Copied';
+    } catch (e) {
+      btn.textContent = '✗ Failed';
+    }
+    setTimeout(() => { btn.textContent = prev; }, 1500);
   }
 
   async function resumeSession() {
