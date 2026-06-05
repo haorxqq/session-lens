@@ -18,6 +18,9 @@ The command line makes it hard to revisit past AI coding conversations. `session
 - **Rename a session** — type a new title and session-lens generates a shell command to copy and run yourself; it never writes your data:
   - Claude Code → appends an `ai-title` record to the session's `.jsonl`
   - opencode → a `sqlite3 UPDATE` on the session title
+- **Delete a session** — also generated as a command to copy and run; session-lens never deletes anything itself:
+  - Claude Code → moves the `.jsonl` to the Trash (`trash` / `gio trash`, recoverable)
+  - opencode → `opencode session delete <id>` (permanent)
 
 ## Requirements
 

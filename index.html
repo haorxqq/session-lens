@@ -346,6 +346,7 @@
       white-space: nowrap;
     }
     .copy-cmd-btn:hover { color: var(--text); border-color: var(--accent); }
+    .copy-cmd-btn-danger:hover { color: #e5484d; border-color: #e5484d; }
 
     .rename-panel {
       display: flex;
@@ -392,6 +393,7 @@
       font-size: 11px;
       color: var(--orange);
     }
+    .rename-note-danger { color: #e5484d; }
 
     .content-header-meta {
       display: flex;
@@ -745,6 +747,7 @@
       <div class="content-header-top">
         <h2 id="contentTitle"></h2>
         <button class="copy-cmd-btn" id="renameBtn" onclick="toggleRename()" title="Rename this session">✏️ Rename</button>
+        <button class="copy-cmd-btn copy-cmd-btn-danger" id="deleteBtn" onclick="toggleDelete()" title="Delete this session">🗑️ Delete</button>
         <button class="copy-cmd-btn" id="copyCmdBtn" onclick="copyResumeCommand()" title="Copy the resume command to clipboard">📋 Copy command</button>
         <button class="resume-btn" id="resumeBtn" onclick="resumeSession()">▶ Continue in terminal</button>
       </div>
@@ -760,6 +763,13 @@
           <code id="renameCmdText"></code>
           <button class="copy-cmd-btn" id="renameCopyBtn" onclick="copyRenameCommand()">📋 Copy</button>
           <div class="rename-note" id="renameNote"></div>
+        </div>
+      </div>
+      <div class="rename-panel" id="deletePanel" style="display:none">
+        <div class="rename-cmd" style="display:flex">
+          <code id="deleteCmdText"></code>
+          <button class="copy-cmd-btn" id="deleteCopyBtn" onclick="copyDeleteCommand()">📋 Copy</button>
+          <div class="rename-note rename-note-danger" id="deleteNote"></div>
         </div>
       </div>
     </div>
@@ -972,6 +982,7 @@
   function toggleRename() {
     const panel = document.getElementById('renamePanel');
     if (panel.style.display === 'none') {
+      resetDeletePanel();  // mutually exclusive with the delete panel
       const s = allSessions.find(x => x.id === activeSessionId);
       const input = document.getElementById('renameInput');
       input.value = s ? s.title : '';
@@ -1003,6 +1014,41 @@
     const cmd = document.getElementById('renameCmdText').textContent;
     if (!cmd) return;
     const btn = document.getElementById('renameCopyBtn');
+    const prev = btn.textContent;
+    try {
+      await navigator.clipboard.writeText(cmd);
+      btn.textContent = '✓ Copied';
+    } catch (e) {
+      btn.textContent = '✗ Failed';
+    }
+    setTimeout(() => { btn.textContent = prev; }, 1500);
+  }
+
+  function resetDeletePanel() {
+    document.getElementById('deletePanel').style.display = 'none';
+  }
+
+  async function toggleDelete() {
+    const panel = document.getElementById('deletePanel');
+    if (panel.style.display !== 'none') { resetDeletePanel(); return; }
+    if (!activeSessionId) return;
+    resetRenamePanel();  // mutually exclusive with the rename panel
+    try {
+      const res = await fetch(`/api/sessions/${activeSessionId}/delete-command`);
+      const data = await res.json();
+      if (!data.ok) { alert(data.message || 'Failed to generate command'); return; }
+      document.getElementById('deleteCmdText').textContent = data.command;
+      document.getElementById('deleteNote').textContent = data.note || '';
+      panel.style.display = 'flex';
+    } catch (e) {
+      alert('Failed to generate command: ' + e.message);
+    }
+  }
+
+  async function copyDeleteCommand() {
+    const cmd = document.getElementById('deleteCmdText').textContent;
+    if (!cmd) return;
+    const btn = document.getElementById('deleteCopyBtn');
     const prev = btn.textContent;
     try {
       await navigator.clipboard.writeText(cmd);
@@ -1065,7 +1111,8 @@
   async function openSession(id) {
     if (activeSessionId === id) return;
     activeSessionId = id;
-    resetRenamePanel();  // don't carry a rename panel across sessions
+    resetRenamePanel();  // don't carry rename/delete panels across sessions
+    resetDeletePanel();
 
     // Update list selection
     document.querySelectorAll('.session-item').forEach(el => {

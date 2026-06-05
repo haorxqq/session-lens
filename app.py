@@ -620,6 +620,35 @@ def api_session_rename_command(session_id):
     return jsonify({"ok": True, "command": command, "note": note})
 
 
+@app.route("/api/sessions/<session_id>/delete-command")
+def api_session_delete_command(session_id):
+    """Generate (but do NOT run) a shell command that deletes the session at
+    its source. session-lens never touches the data — the user runs it."""
+    session = next((s for s in get_sessions() if s["id"] == session_id), None)
+    if not session:
+        abort(404)
+
+    source = session.get("source", "claude")
+    if source == "claude":
+        path = shlex.quote(session["path"])
+        if SYSTEM == "Darwin":
+            command = f"trash {path}"
+            note = "Moves the file to the Trash (recoverable). Needs the `trash` CLI: brew install trash."
+        elif SYSTEM == "Windows":
+            command = f"Remove-Item {path}"
+            note = "Permanently deletes the session file."
+        else:
+            command = f"gio trash {path}"
+            note = "Moves the file to the Trash (recoverable). Falls back to `rm` if `gio` is unavailable."
+    elif source == "opencode":
+        command = f"opencode session delete {shlex.quote(session_id)}"
+        note = "Permanently deletes the session from opencode (not recoverable)."
+    else:
+        return jsonify({"ok": False, "message": f"Unsupported source: {source}"}), 400
+
+    return jsonify({"ok": True, "command": command, "note": note})
+
+
 @app.route("/api/reload")
 def api_reload():
     global _sessions_cache
