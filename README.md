@@ -9,7 +9,7 @@ The command line makes it hard to revisit past AI coding conversations. `session
 ## Features
 
 - **Two sources, one place** — aggregates Claude Code (`~/.claude/projects/*.jsonl`) and opencode (`~/.local/share/opencode/opencode.db`) sessions side by side.
-- **Cascading filters** — filter by source (Claude / opencode), then by project; plus full-text search over titles.
+- **Cascading filters & sort** — filter by source (Claude / opencode), then by project; full-text search over titles; sort by most recent or most messages.
 - **Readable transcripts** — your messages on the right, the assistant on the left; Markdown rendering, syntax highlighting, collapsible **Thinking** and **Tool result** blocks.
 - **Session metadata** — title, session ID (click to copy), working directory, message count, and timestamps.
 - **Resume in your terminal** — one click opens a new iTerm window, `cd`s into the original working directory, and runs the resume command:
@@ -61,6 +61,8 @@ If a terminal can't be launched, the command is **copied to your clipboard** ins
   - `GET /api/sessions` — session list metadata
   - `GET /api/sessions/<id>` — full conversation
   - `POST /api/sessions/<id>/resume` — open the session in a terminal (platform-aware)
+  - `GET /api/sessions/<id>/rename-command?title=…` — generate a rename command (read-only)
+  - `GET /api/sessions/<id>/delete-command` — generate a delete command (read-only)
   - `GET /api/reload` — rebuild the in-memory cache
 - `index.html` — single-page frontend (no build step; dependencies loaded via CDN).
 
