@@ -15,6 +15,9 @@ The command line makes it hard to revisit past AI coding conversations. `session
 - **Resume in your terminal** — one click opens a new iTerm window, `cd`s into the original working directory, and runs the resume command:
   - Claude Code → `claude --resume <id>`
   - opencode → `opencode --session <id>`
+- **Rename a session** — type a new title and session-lens generates a shell command to copy and run yourself; it never writes your data:
+  - Claude Code → appends an `ai-title` record to the session's `.jsonl`
+  - opencode → a `sqlite3 UPDATE` on the session title
 
 ## Requirements
 

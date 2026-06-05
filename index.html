@@ -346,6 +346,53 @@
       white-space: nowrap;
     }
     .copy-cmd-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    .rename-panel {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .rename-panel input {
+      flex: 1;
+      min-width: 200px;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      outline: none;
+    }
+    .rename-panel input:focus { border-color: var(--accent); }
+    .rename-cmd {
+      flex-basis: 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .rename-cmd code {
+      flex: 1;
+      min-width: 200px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .rename-note {
+      flex-basis: 100%;
+      font-size: 11px;
+      color: var(--orange);
+    }
+
     .content-header-meta {
       display: flex;
       align-items: center;
@@ -697,6 +744,7 @@
     <div class="content-header" id="contentHeader" style="display:none">
       <div class="content-header-top">
         <h2 id="contentTitle"></h2>
+        <button class="copy-cmd-btn" id="renameBtn" onclick="toggleRename()" title="Rename this session">✏️ Rename</button>
         <button class="copy-cmd-btn" id="copyCmdBtn" onclick="copyResumeCommand()" title="Copy the resume command to clipboard">📋 Copy command</button>
         <button class="resume-btn" id="resumeBtn" onclick="resumeSession()">▶ Continue in terminal</button>
       </div>
@@ -704,6 +752,15 @@
         <span id="contentProject"></span>
         <span id="contentDate"></span>
         <span id="contentMsgCount"></span>
+      </div>
+      <div class="rename-panel" id="renamePanel" style="display:none">
+        <input type="text" id="renameInput" placeholder="New title" onkeydown="if(event.key==='Enter')genRenameCommand()" />
+        <button class="copy-cmd-btn" onclick="genRenameCommand()">Generate command</button>
+        <div class="rename-cmd" id="renameCmdBox" style="display:none">
+          <code id="renameCmdText"></code>
+          <button class="copy-cmd-btn" id="renameCopyBtn" onclick="copyRenameCommand()">📋 Copy</button>
+          <div class="rename-note" id="renameNote"></div>
+        </div>
       </div>
     </div>
     <div id="emptyState" class="empty-state">
@@ -905,6 +962,57 @@
     }).catch(() => {});
   }
 
+  function resetRenamePanel() {
+    document.getElementById('renamePanel').style.display = 'none';
+    document.getElementById('renameCmdBox').style.display = 'none';
+    document.getElementById('renameCmdText').textContent = '';
+    document.getElementById('renameNote').textContent = '';
+  }
+
+  function toggleRename() {
+    const panel = document.getElementById('renamePanel');
+    if (panel.style.display === 'none') {
+      const s = allSessions.find(x => x.id === activeSessionId);
+      const input = document.getElementById('renameInput');
+      input.value = s ? s.title : '';
+      document.getElementById('renameCmdBox').style.display = 'none';
+      panel.style.display = 'flex';
+      input.focus();
+      input.select();
+    } else {
+      resetRenamePanel();
+    }
+  }
+
+  async function genRenameCommand() {
+    const title = document.getElementById('renameInput').value.trim();
+    if (!title || !activeSessionId) return;
+    try {
+      const res = await fetch(`/api/sessions/${activeSessionId}/rename-command?title=${encodeURIComponent(title)}`);
+      const data = await res.json();
+      if (!data.ok) { alert(data.message || 'Failed to generate command'); return; }
+      document.getElementById('renameCmdText').textContent = data.command;
+      document.getElementById('renameNote').textContent = data.note || '';
+      document.getElementById('renameCmdBox').style.display = 'flex';
+    } catch (e) {
+      alert('Failed to generate command: ' + e.message);
+    }
+  }
+
+  async function copyRenameCommand() {
+    const cmd = document.getElementById('renameCmdText').textContent;
+    if (!cmd) return;
+    const btn = document.getElementById('renameCopyBtn');
+    const prev = btn.textContent;
+    try {
+      await navigator.clipboard.writeText(cmd);
+      btn.textContent = '✓ Copied';
+    } catch (e) {
+      btn.textContent = '✗ Failed';
+    }
+    setTimeout(() => { btn.textContent = prev; }, 1500);
+  }
+
   // POSIX-quote a string for a shell command (matches backend _build_command)
   function shQuote(s) {
     return "'" + String(s).replace(/'/g, "'\\''") + "'";
@@ -957,6 +1065,7 @@
   async function openSession(id) {
     if (activeSessionId === id) return;
     activeSessionId = id;
+    resetRenamePanel();  // don't carry a rename panel across sessions
 
     // Update list selection
     document.querySelectorAll('.session-item').forEach(el => {

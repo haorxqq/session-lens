@@ -8,7 +8,7 @@ import sqlite3
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from flask import Flask, jsonify, send_from_directory, abort
+from flask import Flask, jsonify, request, send_from_directory, abort
 
 app = Flask(__name__, static_folder=None)
 
@@ -586,6 +586,38 @@ def api_session_resume(session_id):
         # Return the command so the frontend can offer copy-to-clipboard.
         return jsonify({"ok": False, "message": str(e), "command": fallback}), 500
     return jsonify({"ok": True, "command": command})
+
+
+@app.route("/api/sessions/<session_id>/rename-command")
+def api_session_rename_command(session_id):
+    """Generate (but do NOT run) a shell command that renames the session at
+    its source. session-lens never writes data itself — the user runs it."""
+    session = next((s for s in get_sessions() if s["id"] == session_id), None)
+    if not session:
+        abort(404)
+    title = (request.args.get("title") or "").strip()
+    if not title:
+        return jsonify({"ok": False, "message": "Title is required"}), 400
+
+    source = session.get("source", "claude")
+    note = ""
+    if source == "claude":
+        rec = json.dumps(
+            {"type": "ai-title", "aiTitle": title, "sessionId": session_id},
+            ensure_ascii=False,
+        )
+        command = f"printf '%s\\n' {shlex.quote(rec)} >> {shlex.quote(session['path'])}"
+    elif source == "opencode":
+        sql = (
+            f"UPDATE session SET title = '{title.replace(chr(39), chr(39) * 2)}' "
+            f"WHERE id = '{session_id}';"
+        )
+        command = f"sqlite3 {shlex.quote(str(OPENCODE_DB))} {shlex.quote(sql)}"
+        note = "Close opencode before running — the database may be locked while it's open."
+    else:
+        return jsonify({"ok": False, "message": f"Unsupported source: {source}"}), 400
+
+    return jsonify({"ok": True, "command": command, "note": note})
 
 
 @app.route("/api/reload")
