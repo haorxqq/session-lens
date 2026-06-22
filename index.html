@@ -1216,7 +1216,8 @@
       messagesEl.appendChild(wrapper);
     });
 
-    messagesEl.scrollTop = 0;
+    // Scroll to the latest message after layout settles (markdown/highlight render async)
+    requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
   }
 
   function makeCollapsible(wrapClass, headerClass, bodyClass, label, bodyHtml) {
