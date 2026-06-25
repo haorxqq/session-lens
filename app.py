@@ -442,9 +442,237 @@ def get_sessions():
     return _sessions_cache
 
 
+# ── Config inspection (Claude Code + opencode) ──
+CLAUDE_DIR = Path.home() / ".claude"
+CLAUDE_JSON = Path.home() / ".claude.json"
+OPENCODE_CONFIG_DIR = Path.home() / ".config" / "opencode"
+
+_SECRET_HINTS = ("authorization", "token", "apikey", "api_key", "secret", "password", "bearer", "key")
+
+
+def _mask(value):
+    s = str(value)
+    return "••••" if len(s) <= 8 else s[:4] + "…" + s[-3:]
+
+
+def _mask_secrets(d):
+    """Mask values whose key looks like a credential."""
+    if not isinstance(d, dict):
+        return d
+    return {
+        k: (_mask(v) if any(h in k.lower() for h in _SECRET_HINTS) else v)
+        for k, v in d.items()
+    }
+
+
+def _short_path(p):
+    """Abbreviate the home dir to ~ for display."""
+    p, home = str(p), str(Path.home())
+    return "~" + p[len(home):] if p.startswith(home) else p
+
+
+def _strip_jsonc(text):
+    """Strip // and /* */ comments from JSONC, preserving them inside strings."""
+    out = []
+    i, n = 0, len(text)
+    in_str = esc = False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            i += 1
+        elif c == '"':
+            in_str = True
+            out.append(c)
+            i += 1
+        elif c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+        elif c == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _read_md_meta(path):
+    """Pull a name + description from a .md file: YAML frontmatter if present,
+    otherwise the first non-heading line as the description."""
+    name, desc = path.stem, ""
+    try:
+        text = path.read_text()
+    except Exception:
+        return {"name": name, "description": ""}
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:
+            for line in text[3:end].splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    k, v = k.strip().lower(), v.strip()
+                    if k == "name" and v:
+                        name = v
+                    elif k == "description" and v:
+                        desc = v
+            text = text[end + 4:]
+    if not desc:
+        desc = next(
+            (l.strip() for l in text.splitlines()
+             if l.strip() and not l.lstrip().startswith("#") and not l.strip() == "---"),
+            "",
+        )
+    return {"name": name, "description": desc}
+
+
+def _scan_commands():
+    d = CLAUDE_DIR / "commands"
+    return [_read_md_meta(p) for p in sorted(d.glob("*.md"))] if d.is_dir() else []
+
+
+def _scan_skills():
+    out = []
+    sd = CLAUDE_DIR / "skills"
+    if sd.is_dir():
+        for skill_md in sorted(sd.glob("*/SKILL.md")):
+            m = _read_md_meta(skill_md)
+            if m["name"] in ("SKILL", ""):
+                m["name"] = skill_md.parent.name
+            out.append(m)
+    return out
+
+
+def _scan_agents():
+    d = CLAUDE_DIR / "agents"
+    return [_read_md_meta(p) for p in sorted(d.glob("*.md"))] if d.is_dir() else []
+
+
+def read_claude_config():
+    settings = {}
+    sp = CLAUDE_DIR / "settings.json"
+    if sp.exists():
+        try:
+            settings = json.loads(sp.read_text())
+        except Exception:
+            settings = {}
+    mcp, skills, projects = {}, {}, 0
+    if CLAUDE_JSON.exists():
+        try:
+            d = json.loads(CLAUDE_JSON.read_text())
+            for name, cfg in (d.get("mcpServers") or {}).items():
+                cfg = dict(cfg)
+                if "headers" in cfg:
+                    cfg["headers"] = _mask_secrets(cfg["headers"])
+                if "env" in cfg:
+                    cfg["env"] = _mask_secrets(cfg["env"])
+                mcp[name] = cfg
+            skills = d.get("skillUsage") or {}
+            projects = len(d.get("projects") or {})
+        except Exception:
+            pass
+    plugins = {}
+    ip = CLAUDE_DIR / "plugins" / "installed_plugins.json"
+    if ip.exists():
+        try:
+            plugins = json.loads(ip.read_text()).get("plugins") or {}
+        except Exception:
+            pass
+    commands = _scan_commands()
+    skill_files = _scan_skills()
+    agents = _scan_agents()
+    return {
+        "available": bool(settings or mcp or plugins or commands or skill_files),
+        "settings": {
+            "model": settings.get("model") or "default",
+            "theme": settings.get("theme"),
+            "effortLevel": settings.get("effortLevel"),
+            "permissions": settings.get("permissions"),
+            "enabledPlugins": settings.get("enabledPlugins"),
+        },
+        "mcp": mcp,
+        "commands": commands,
+        "skills": skill_files,
+        "skillUsage": skills,
+        "agents": agents,
+        "plugins": plugins,
+        "projectCount": projects,
+        "sources": {
+            "settings": _short_path(CLAUDE_DIR / "settings.json"),
+            "mcp": _short_path(CLAUDE_JSON),
+            "commands": _short_path(CLAUDE_DIR / "commands") + "/",
+            "skills": _short_path(CLAUDE_DIR / "skills") + "/",
+            "agents": _short_path(CLAUDE_DIR / "agents") + "/",
+            "plugins": _short_path(CLAUDE_DIR / "plugins" / "installed_plugins.json"),
+        },
+    }
+
+
+def read_opencode_config():
+    out = {"available": False, "providers": {}, "mcp": {}, "models": []}
+    cfg_file = next(
+        (OPENCODE_CONFIG_DIR / n for n in ("opencode.jsonc", "opencode.json")
+         if (OPENCODE_CONFIG_DIR / n).exists()),
+        None,
+    )
+    if cfg_file:
+        try:
+            d = json.loads(_strip_jsonc(cfg_file.read_text()), strict=False)
+            for name, c in (d.get("provider") or {}).items():
+                out["providers"][name] = {
+                    "label": c.get("name", name),
+                    "npm": c.get("npm", ""),
+                    "models": list((c.get("models") or {}).keys()),
+                    "baseURL": (c.get("options") or {}).get("baseURL", ""),
+                }
+            out["mcp"] = {
+                name: (_mask_secrets(dict(c)) if isinstance(c, dict) else c)
+                for name, c in (d.get("mcp") or {}).items()
+            }
+            out["available"] = True
+        except Exception:
+            pass
+    try:
+        r = subprocess.run(
+            "opencode models" if SYSTEM == "Windows" else ["opencode", "models"],
+            capture_output=True, text=True, timeout=10,
+            shell=(SYSTEM == "Windows"),
+        )
+        out["models"] = [m.strip() for m in r.stdout.splitlines() if m.strip()]
+        if out["models"]:
+            out["available"] = True
+    except Exception:
+        pass
+    cfg_display = _short_path(cfg_file) if cfg_file else "~/.config/opencode/opencode.jsonc"
+    out["sources"] = {
+        "providers": cfg_display,
+        "mcp": cfg_display,
+        "models": "$ opencode models",
+    }
+    return out
+
+
 @app.route("/")
 def index():
     return send_from_directory(BASE_DIR, "index.html")
+
+
+@app.route("/config")
+def config_page():
+    return send_from_directory(BASE_DIR, "config.html")
+
+
+@app.route("/api/config")
+def api_config():
+    return jsonify({"claude": read_claude_config(), "opencode": read_opencode_config()})
 
 
 @app.route("/api/sessions")

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configuration · session-lens</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%91%80</text></svg>">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #f6f7f9;
+      --sidebar-bg: #ffffff;
+      --card-bg: #ffffff;
+      --card-hover: #f0f3f7;
+      --border: #e4e7ec;
+      --text: #1c2430;
+      --text-muted: #687283;
+      --text-dim: #98a2b3;
+      --accent: #2563eb;
+      --accent-dim: #e6efff;
+      --green: #15a34a;
+      --green-dim: #e7f6ed;
+      --purple: #7c3aed;
+      --purple-dim: #f1eafe;
+      --orange: #d97706;
+      --orange-dim: #fdf0dc;
+      --code-bg: #f6f8fa;
+      --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+      --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.06);
+      --radius: 12px;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+    }
+    body { font-family: var(--font-sans); background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    .header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 20px; background: var(--sidebar-bg);
+      border-bottom: 1px solid var(--border); box-shadow: var(--shadow-sm);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .logo {
+      width: 24px; height: 24px;
+      background: linear-gradient(135deg, #58a6ff, #a371f7);
+      border-radius: 6px; display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+    }
+    .header h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; }
+    .header-spacer { flex: 1; }
+    .back-link {
+      font-size: 13px; color: var(--text-muted); text-decoration: none;
+      border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px;
+      transition: all 0.15s;
+    }
+    .back-link:hover { color: var(--accent); border-color: var(--accent); }
+
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+
+    .source-section { margin-bottom: 40px; }
+    .source-head {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+    }
+    .source-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.4px; }
+    .source-badge {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase;
+      padding: 2px 8px; border-radius: 5px;
+    }
+    .source-badge.claude { color: #c2410c; background: var(--orange-dim); }
+    .source-badge.opencode { color: #0e7490; background: #d9f1f6; }
+    .source-unavailable { font-size: 13px; color: var(--text-dim); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+
+    .card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden;
+    }
+    .card.wide { grid-column: 1 / -1; }
+    .card-head {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+    }
+    .card-head .icon { font-size: 15px; }
+    .head-text { flex: 1; min-width: 0; }
+    .card-head h3 { font-size: 13px; font-weight: 600; }
+    .card-source {
+      font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+      margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .card-head .count {
+      font-size: 11px; color: var(--text-muted); font-weight: 600;
+      background: var(--code-bg); border-radius: 10px; padding: 1px 8px;
+    }
+    .card-body { padding: 14px 16px; }
+
+    .kv { display: flex; gap: 10px; font-size: 13px; padding: 4px 0; }
+    .kv .k { color: var(--text-muted); min-width: 96px; flex-shrink: 0; }
+    .kv .v { color: var(--text); word-break: break-word; }
+
+    .pill {
+      display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 10px;
+      background: var(--code-bg); color: var(--text-muted); margin: 2px 3px 2px 0;
+    }
+    .pill.accent { background: var(--accent-dim); color: var(--accent); }
+    .pill.green { background: var(--green-dim); color: var(--green); }
+    .pill.purple { background: var(--purple-dim); color: var(--purple); }
+
+    .mcp-item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .mcp-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .mcp-item:first-child { padding-top: 0; }
+    .mcp-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .type-badge {
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+      padding: 1px 6px; border-radius: 4px;
+    }
+    .type-badge.http { background: var(--accent-dim); color: var(--accent); }
+    .type-badge.stdio { background: var(--purple-dim); color: var(--purple); }
+    .type-badge.sse { background: var(--green-dim); color: var(--green); }
+    .mcp-detail {
+      font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+      margin-top: 4px; word-break: break-all;
+    }
+
+    .list-row {
+      display: flex; align-items: center; gap: 8px; font-size: 13px;
+      padding: 6px 0; border-bottom: 1px solid var(--border);
+    }
+    .list-row:last-child { border-bottom: none; }
+    .list-row .name { flex: 1; font-weight: 500; }
+    .list-row .meta { font-size: 11px; color: var(--text-dim); }
+
+    .prov-block { margin-bottom: 14px; }
+    .prov-block:last-child { margin-bottom: 0; }
+    .prov-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    .prov-sub { font-size: 11px; color: var(--text-dim); font-weight: 400; }
+
+    .model-group { margin-bottom: 12px; }
+    .model-group:last-child { margin-bottom: 0; }
+    .model-group-title {
+      font-size: 12px; font-weight: 600; color: var(--text-muted);
+      margin-bottom: 5px; font-family: var(--font-mono);
+    }
+
+    .loading { text-align: center; color: var(--text-muted); padding: 60px; font-size: 14px; }
+    .empty { color: var(--text-dim); font-size: 13px; font-style: italic; }
+    .perm-code {
+      font-family: var(--font-mono); font-size: 11px; background: var(--code-bg);
+      padding: 1px 6px; border-radius: 4px; margin: 2px 3px 2px 0; display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">⚙️</div>
+    <h1>Configuration</h1>
+    <div class="header-spacer"></div>
+    <a class="back-link" href="/">← Conversations</a>
+  </div>
+
+  <div class="wrap" id="wrap">
+    <div class="loading">Loading configuration…</div>
+  </div>
+
+  <script>
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function card(icon, title, count, bodyHtml, source, wide) {
+      const c = (count != null) ? `<span class="count">${count}</span>` : '';
+      const src = source ? `<div class="card-source" title="${esc(source)}">${esc(source)}</div>` : '';
+      return `<div class="card${wide ? ' wide' : ''}">
+        <div class="card-head"><span class="icon">${icon}</span>
+          <div class="head-text"><h3>${esc(title)}</h3>${src}</div>${c}</div>
+        <div class="card-body">${bodyHtml}</div></div>`;
+    }
+
+    function renderClaude(c) {
+      if (!c.available) return `<div class="source-unavailable">No Claude Code configuration found.</div>`;
+      const cards = [];
+      const src = c.sources || {};
+
+      // Settings
+      const s = c.settings || {};
+      let perms = '';
+      if (s.permissions && s.permissions.allow) {
+        perms = s.permissions.allow.map(p => `<span class="perm-code">${esc(p)}</span>`).join('');
+      }
+      cards.push(card('🛠️', 'Settings', null, `
+        <div class="kv"><span class="k">Model</span><span class="v">${esc(s.model)}</span></div>
+        <div class="kv"><span class="k">Theme</span><span class="v">${esc(s.theme || '—')}</span></div>
+        <div class="kv"><span class="k">Effort level</span><span class="v">${esc(s.effortLevel || '—')}</span></div>
+        ${perms ? `<div class="kv"><span class="k">Permissions</span><span class="v">${perms}</span></div>` : ''}
+      `, src.settings));
+
+      // MCP servers
+      const mcp = c.mcp || {};
+      const mcpNames = Object.keys(mcp);
+      let mcpBody;
+      if (mcpNames.length === 0) {
+        mcpBody = `<div class="empty">No MCP servers configured.</div>`;
+      } else {
+        mcpBody = mcpNames.map(name => {
+          const m = mcp[name];
+          const type = (m.type || 'stdio').toLowerCase();
+          const detail = m.url
+            ? m.url
+            : [m.command, ...(m.args || [])].filter(Boolean).join(' ');
+          const hdr = m.headers ? Object.entries(m.headers).map(([k,v]) => `${k}: ${v}`).join(', ') : '';
+          return `<div class="mcp-item">
+            <div class="mcp-name">${esc(name)} <span class="type-badge ${type}">${esc(type)}</span></div>
+            <div class="mcp-detail">${esc(detail)}</div>
+            ${hdr ? `<div class="mcp-detail">🔑 ${esc(hdr)}</div>` : ''}
+          </div>`;
+        }).join('');
+      }
+      cards.push(card('🔌', 'MCP Servers', mcpNames.length, mcpBody, src.mcp));
+
+      // name + description lists (commands / skills / agents)
+      const itemList = (items, emptyMsg) => (items && items.length)
+        ? items.map(it => `<div class="list-row"><div style="flex:1;min-width:0">
+            <div class="name">${esc(it.name)}</div>
+            ${it.description ? `<div class="meta" style="margin-top:2px;line-height:1.45;white-space:normal">${esc(it.description.slice(0,160))}${it.description.length > 160 ? '…' : ''}</div>` : ''}
+          </div></div>`).join('')
+        : `<div class="empty">${emptyMsg}</div>`;
+
+      // Commands
+      cards.push(card('⌘', 'Commands', (c.commands || []).length, itemList(c.commands, 'No custom commands.'), src.commands));
+      // Skills
+      cards.push(card('✨', 'Skills', (c.skills || []).length, itemList(c.skills, 'No skills installed.'), src.skills));
+      // Agents (only show the card if any exist)
+      if ((c.agents || []).length) {
+        cards.push(card('🤖', 'Agents', c.agents.length, itemList(c.agents, ''), src.agents));
+      }
+
+      // Plugins
+      const plugins = c.plugins || {};
+      const plugNames = Object.keys(plugins);
+      const plugBody = plugNames.length
+        ? plugNames.map(n => {
+            const inst = (plugins[n] && plugins[n][0]) || {};
+            return `<div class="list-row"><span class="name">${esc(n)}</span>
+              <span class="meta">${esc(inst.scope || '')}</span></div>`;
+          }).join('')
+        : `<div class="empty">No plugins installed.</div>`;
+      cards.push(card('🧩', 'Plugins', plugNames.length, plugBody, src.plugins));
+
+      return `<div class="grid">${cards.join('')}</div>`;
+    }
+
+    function renderOpencode(o) {
+      if (!o.available) return `<div class="source-unavailable">No opencode configuration found.</div>`;
+      const cards = [];
+      const src = o.sources || {};
+
+      // Custom providers from config
+      const provs = o.providers || {};
+      const provNames = Object.keys(provs);
+      if (provNames.length) {
+        const body = provNames.map(name => {
+          const p = provs[name];
+          const models = (p.models || []).map(m => `<span class="pill accent">${esc(m)}</span>`).join('');
+          return `<div class="prov-block">
+            <div class="prov-title">${esc(p.label || name)} <span class="prov-sub">${esc(name)}${p.npm ? ' · ' + esc(p.npm) : ''}</span></div>
+            <div>${models || '<span class="empty">no models</span>'}</div>
+          </div>`;
+        }).join('');
+        cards.push(card('🧠', 'Configured Providers', provNames.length, body, src.providers));
+      }
+
+      // MCP
+      const mcp = o.mcp || {};
+      const mcpNames = Object.keys(mcp);
+      if (mcpNames.length) {
+        const body = mcpNames.map(name => {
+          const m = mcp[name];
+          const detail = m.url || (m.command ? [m.command, ...(m.args||[])].filter(Boolean).join(' ') : '');
+          return `<div class="mcp-item"><div class="mcp-name">${esc(name)}</div>
+            <div class="mcp-detail">${esc(detail)}</div></div>`;
+        }).join('');
+        cards.push(card('🔌', 'MCP Servers', mcpNames.length, body, src.mcp));
+      }
+
+      // Available models (grouped by provider prefix)
+      const models = o.models || [];
+      if (models.length) {
+        const groups = {};
+        models.forEach(m => {
+          const i = m.indexOf('/');
+          const g = i > 0 ? m.slice(0, i) : 'other';
+          (groups[g] = groups[g] || []).push(i > 0 ? m.slice(i + 1) : m);
+        });
+        const body = Object.keys(groups).sort().map(g =>
+          `<div class="model-group">
+            <div class="model-group-title">${esc(g)} <span style="color:var(--text-dim)">(${groups[g].length})</span></div>
+            <div>${groups[g].map(m => `<span class="pill">${esc(m)}</span>`).join('')}</div>
+          </div>`).join('');
+        cards.push(card('📋', 'Available Models', models.length, body, src.models, true));
+      }
+
+      return `<div class="grid">${cards.join('')}</div>`;
+    }
+
+    async function load() {
+      const wrap = document.getElementById('wrap');
+      try {
+        const res = await fetch('/api/config');
+        const d = await res.json();
+        wrap.innerHTML = `
+          <div class="source-section">
+            <div class="source-head"><span class="source-badge claude">Claude</span><h2>Claude Code</h2></div>
+            ${renderClaude(d.claude || {})}
+          </div>
+          <div class="source-section">
+            <div class="source-head"><span class="source-badge opencode">opencode</span><h2>opencode</h2></div>
+            ${renderOpencode(d.opencode || {})}
+          </div>`;
+      } catch (e) {
+        wrap.innerHTML = `<div class="loading" style="color:#e5484d">Failed to load configuration: ${esc(e.message)}</div>`;
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

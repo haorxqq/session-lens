@@ -21,6 +21,7 @@ The command line makes it hard to revisit past AI coding conversations. `session
 - **Delete a session** — also generated as a command to copy and run; session-lens never deletes anything itself:
   - Claude Code → moves the `.jsonl` to the Trash (`trash` / `gio trash`, recoverable)
   - opencode → `opencode session delete <id>` (permanent)
+- **Config inspector** (`/config`) — visualizes your Claude Code & opencode setup: MCP servers, models/providers, commands, skills, plugins, and settings. Each card is labelled with the file or directory it comes from, and secrets (tokens/keys) are masked.
 
 ## Requirements
 
