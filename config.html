@@ -128,6 +128,16 @@
     .list-row:last-child { border-bottom: none; }
     .list-row .name { flex: 1; font-weight: 500; }
     .list-row .meta { font-size: 11px; color: var(--text-dim); }
+    .from-tag {
+      font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+      padding: 1px 6px; border-radius: 4px; vertical-align: middle;
+    }
+    .from-tag.user { background: var(--green-dim); color: var(--green); }
+    .from-tag.plugin { background: var(--purple-dim); color: var(--purple); }
+    .card-note {
+      font-size: 11px; color: var(--text-dim); margin-top: 10px;
+      padding-top: 8px; border-top: 1px solid var(--border); line-height: 1.4;
+    }
 
     .prov-block { margin-bottom: 14px; }
     .prov-block:last-child { margin-bottom: 0; }
@@ -176,6 +186,16 @@
         <div class="card-body">${bodyHtml}</div></div>`;
     }
 
+    // name + description list (commands / skills / agents); shows an optional `from` tag
+    function itemList(items, emptyMsg) {
+      return (items && items.length)
+        ? items.map(it => `<div class="list-row"><div style="flex:1;min-width:0">
+            <div class="name">${esc(it.name)}${it.from ? ` <span class="from-tag ${it.from === 'user' ? 'user' : 'plugin'}">${esc(it.from)}</span>` : ''}</div>
+            ${it.description ? `<div class="meta" style="margin-top:2px;line-height:1.45;white-space:normal">${esc(it.description.slice(0,160))}${it.description.length > 160 ? '…' : ''}</div>` : ''}
+          </div></div>`).join('')
+        : `<div class="empty">${emptyMsg}</div>`;
+    }
+
     function renderClaude(c) {
       if (!c.available) return `<div class="source-unavailable">No Claude Code configuration found.</div>`;
       const cards = [];
@@ -217,18 +237,12 @@
       }
       cards.push(card('🔌', 'MCP Servers', mcpNames.length, mcpBody, src.mcp));
 
-      // name + description lists (commands / skills / agents)
-      const itemList = (items, emptyMsg) => (items && items.length)
-        ? items.map(it => `<div class="list-row"><div style="flex:1;min-width:0">
-            <div class="name">${esc(it.name)}</div>
-            ${it.description ? `<div class="meta" style="margin-top:2px;line-height:1.45;white-space:normal">${esc(it.description.slice(0,160))}${it.description.length > 160 ? '…' : ''}</div>` : ''}
-          </div></div>`).join('')
-        : `<div class="empty">${emptyMsg}</div>`;
-
       // Commands
       cards.push(card('⌘', 'Commands', (c.commands || []).length, itemList(c.commands, 'No custom commands.'), src.commands));
-      // Skills
-      cards.push(card('✨', 'Skills', (c.skills || []).length, itemList(c.skills, 'No skills installed.'), src.skills));
+      // Skills (user-level + enabled plugins; built-ins are compiled into the binary)
+      const skillsBody = itemList(c.skills, 'No user or plugin skills found.') +
+        `<div class="card-note">Built-in skills (verify, code-review, init…) are compiled into Claude Code and aren't stored as files.</div>`;
+      cards.push(card('✨', 'Skills', (c.skills || []).length, skillsBody, src.skills));
       // Agents (only show the card if any exist)
       if ((c.agents || []).length) {
         cards.push(card('🤖', 'Agents', c.agents.length, itemList(c.agents, ''), src.agents));
@@ -280,6 +294,14 @@
             <div class="mcp-detail">${esc(detail)}</div></div>`;
         }).join('');
         cards.push(card('🔌', 'MCP Servers', mcpNames.length, body, src.mcp));
+      }
+
+      // Agents / Commands (from opencode.jsonc) — only shown if configured
+      if ((o.agents || []).length) {
+        cards.push(card('🤖', 'Agents', o.agents.length, itemList(o.agents, ''), src.providers));
+      }
+      if ((o.commands || []).length) {
+        cards.push(card('⌘', 'Commands', o.commands.length, itemList(o.commands, ''), src.providers));
       }
 
       // Available models (grouped by provider prefix)
