@@ -1,49 +1,44 @@
-# session-lens
+# 👀 session-lens
 
-A local web viewer for **Claude Code** & **opencode** conversation history — browse, search, filter by source, and resume any session right in your terminal.
+**Your AI coding history is a goldmine — stop letting it rot in the terminal.**
 
-The command line makes it hard to revisit past AI coding conversations. `session-lens` reads your local session history from both Claude Code and opencode, presents it as a searchable list, and renders each conversation as a clean chat transcript.
+Every session you've ever had with **Claude Code** or **opencode** is sitting on your disk: the bug you fixed at 2am, the shell one-liner you never wrote down, the architecture discussion you half-remember. Scrolling terminal backlog to find it? Painful. `session-lens` turns all of it into a fast, beautiful, searchable web UI — and lets you jump back into any conversation with one click.
+
+No cloud. No database to set up. No build step. **One Python file + one HTML file**, reading the session data you already have.
 
 ![session-lens screenshot](assets/screen.png)
 
-## Features
+## Why you'll keep it open in a tab
 
-- **Two sources, one place** — aggregates Claude Code (`~/.claude/projects/*.jsonl`) and opencode (`~/.local/share/opencode/opencode.db`) sessions side by side.
-- **Cascading filters & sort** — filter by source (Claude / opencode), then by project; full-text search over titles; sort by most recent or most messages.
-- **Readable transcripts** — your messages on the right, the assistant on the left; Markdown rendering, syntax highlighting, collapsible **Thinking** and **Tool result** blocks.
-- **Session metadata** — title, session ID (click to copy), working directory, message count, and timestamps.
-- **Resume in your terminal** — one click opens a new iTerm window, `cd`s into the original working directory, and runs the resume command:
-  - Claude Code → `claude --resume <id>`
-  - opencode → `opencode --session <id>`
-- **Rename a session** — type a new title and session-lens generates a shell command to copy and run yourself; it never writes your data:
-  - Claude Code → appends an `ai-title` record to the session's `.jsonl`
-  - opencode → a `sqlite3 UPDATE` on the session title
-- **Delete a session** — also generated as a command to copy and run; session-lens never deletes anything itself:
-  - Claude Code → moves the `.jsonl` to the Trash (`trash` / `gio trash`, recoverable)
-  - opencode → `opencode session delete <id>` (permanent)
-- **Config inspector** (`/config`) — visualizes your Claude Code & opencode setup: MCP servers, models/providers, commands, skills, plugins, and settings. Each card is labelled with the file or directory it comes from, and secrets (tokens/keys) are masked.
+- 🔍 **Full-text search across every conversation** — not just titles. That command you vaguely remember Claude running three weeks ago? Type any fragment and get highlighted match snippets instantly.
+- 🗂️ **Everything in one place** — aggregates Claude Code (`~/.claude/projects/*.jsonl`) and opencode (SQLite) sessions side by side, with cascading filters: source → origin → project, plus sort by recency or message count.
+- 💬 **Transcripts that are actually readable** — chat-style layout (you on the right, AI on the left), full Markdown + syntax highlighting, collapsible **Thinking** and **Tool result** blocks. Auto-scrolls to the latest message.
+- ⚡ **One-click resume** — reopen any session in a real terminal, already `cd`'d into the original working directory. Or copy the command and paste it anywhere.
+- 🏷️ **Knows where sessions came from** — CLI, VS Code, or Desktop badges per session (and yes, it correctly handles sessions you started in one and resumed in another).
+- ⚙️ **Config inspector** (`/config`) — visualize your whole setup: MCP servers, models, providers, commands, skills, plugins. Every card labelled with the file it comes from, secrets automatically masked.
+- ✏️🗑️ **Rename & delete — the safe way** — session-lens **never writes your data**. It generates the exact shell command and you run it yourself. Zero surprises.
 
-## Requirements
-
-- Python 3.10+ (uses `X | None` type syntax)
-- [Flask](https://flask.palletsprojects.com/) — `pip install flask`
-
-Works on **macOS, Linux, Windows, and WSL**. The browser UI is identical everywhere; only the "Continue in terminal" button is platform-specific (see below).
-
-## Usage
+## Quick start
 
 ```bash
+pip install flask
 python app.py
 ```
 
-Then open http://localhost:5678 — the app reads session files directly (nothing is copied or modified). Use the **Refresh** button to re-scan after new conversations.
+Open **http://localhost:5678**. That's it — it finds your sessions automatically.
 
-### Where data is read from
+Works on **macOS, Linux, Windows, and WSL**. Requires Python 3.10+.
 
-- **Claude Code** — `~/.claude/projects/` (resolved via `Path.home()`, correct on every OS).
-- **opencode** — located automatically via `opencode db path`, then the `OPENCODE_DB` env var, then known fallbacks (`~/.local/share/opencode/opencode.db`, `%LOCALAPPDATA%\opencode\...` on Windows). Set `OPENCODE_DB` to override.
+## How it finds your data
 
-> **Using WSL?** Run `python app.py` **inside WSL** — that's where your Claude/opencode data lives, and the Linux paths resolve correctly there. Open http://localhost:5678 in your Windows browser (WSL2 forwards localhost automatically).
+| Source | Location |
+|--------|----------|
+| Claude Code | `~/.claude/projects/` (auto-resolved on every OS) |
+| opencode | via `opencode db path` → `OPENCODE_DB` env var → known fallbacks |
+
+Everything is read directly and read-only — nothing is copied, uploaded, or modified. Hit **Refresh** to re-scan after new conversations.
+
+> **Using WSL?** Run `python app.py` inside WSL (where your session data lives) and open http://localhost:5678 from your Windows browser — WSL2 forwards localhost automatically.
 
 ### "Continue in terminal" by platform
 
@@ -51,21 +46,22 @@ Then open http://localhost:5678 — the app reads session files directly (nothin
 |----------|----------|
 | macOS    | iTerm (via `osascript`) |
 | Windows  | a new PowerShell window |
-| WSL      | a Windows PowerShell window that re-enters WSL and runs the command |
+| WSL      | a Windows PowerShell window that re-enters WSL |
 | Linux    | first available terminal (`gnome-terminal`, `konsole`, `xterm`, …) |
 
-If a terminal can't be launched, the command is **copied to your clipboard** instead, so you can paste and run it yourself.
+If no terminal can be launched, the command is copied to your clipboard instead — you're never stuck.
 
-## How it works
+## Under the hood
 
-- `app.py` — Flask backend. Scans both sources, normalizes them into a unified message format (`text` / `thinking` / `tool_use` / `tool_result` blocks), and exposes a small JSON API:
+- **`app.py`** — a small Flask backend that normalizes both sources into one message format and exposes a JSON API:
   - `GET /api/sessions` — session list metadata
   - `GET /api/sessions/<id>` — full conversation
+  - `GET /api/search?q=…` — full-text search with match snippets
   - `POST /api/sessions/<id>/resume` — open the session in a terminal (platform-aware)
-  - `GET /api/sessions/<id>/rename-command?title=…` — generate a rename command (read-only)
-  - `GET /api/sessions/<id>/delete-command` — generate a delete command (read-only)
+  - `GET /api/sessions/<id>/rename-command` / `delete-command` — generate safe, copy-paste commands (read-only)
+  - `GET /api/config` — masked, source-labelled configuration overview
   - `GET /api/reload` — rebuild the in-memory cache
-- `index.html` — single-page frontend (no build step; dependencies loaded via CDN).
+- **`index.html`** / **`config.html`** — single-page frontends, no build step, dependencies via CDN.
 
 ## License
 

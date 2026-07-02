@@ -140,6 +140,7 @@ def parse_session_metadata(jsonl_path: Path) -> dict | None:
     last_timestamp = None
     first_user_msg = None
     cwd = None
+    entrypoints = []  # ordered, unique — a session can be resumed from different clients
     msg_count = 0
 
     try:
@@ -161,6 +162,9 @@ def parse_session_metadata(jsonl_path: Path) -> dict | None:
 
                 if not cwd:
                     cwd = obj.get("cwd", "")
+                ep = obj.get("entrypoint")
+                if ep and ep not in entrypoints:
+                    entrypoints.append(ep)
 
                 obj_type = obj.get("type")
 
@@ -188,6 +192,7 @@ def parse_session_metadata(jsonl_path: Path) -> dict | None:
     return {
         "id": session_id,
         "source": "claude",
+        "entrypoints": entrypoints,
         "project": project,
         "dir": dir_name,
         "cwd": cwd or "",
@@ -259,6 +264,7 @@ def load_opencode_sessions() -> list:
                 {
                     "id": r["id"],
                     "source": "opencode",
+                    "entrypoints": [],
                     "project": project,
                     "dir": directory,
                     "cwd": directory,
@@ -433,6 +439,7 @@ def parse_session_messages(jsonl_path: Path) -> list:
 
 # Cache sessions list in memory
 _sessions_cache = None
+_fulltext_cache = {}  # session_id -> lowercased fulltext (lazy)
 
 
 def get_sessions():
@@ -440,6 +447,29 @@ def get_sessions():
     if _sessions_cache is None:
         _sessions_cache = load_all_sessions()
     return _sessions_cache
+
+
+def _session_fulltext(session):
+    """Concatenated text + thinking content of a session (lazy, cached)."""
+    sid = session["id"]
+    if sid in _fulltext_cache:
+        return _fulltext_cache[sid]
+    try:
+        if session.get("source") == "opencode":
+            msgs = parse_opencode_messages(sid)
+        else:
+            msgs = parse_session_messages(Path(session["path"]))
+        parts = [
+            b.get("text", "")
+            for m in msgs
+            for b in m["blocks"]
+            if b["type"] in ("text", "thinking")
+        ]
+        text = "\n".join(parts)
+    except Exception:
+        text = ""
+    _fulltext_cache[sid] = text
+    return text
 
 
 # ── Config inspection (Claude Code + opencode) ──
@@ -539,15 +569,43 @@ def _scan_commands():
     return [_read_md_meta(p) for p in sorted(d.glob("*.md"))] if d.is_dir() else []
 
 
+def _skills_in(base, source):
+    found = []
+    for skill_md in sorted(Path(base).glob("*/SKILL.md")):
+        m = _read_md_meta(skill_md)
+        if m["name"] in ("SKILL", ""):
+            m["name"] = skill_md.parent.name
+        m["from"] = source
+        found.append(m)
+    return found
+
+
 def _scan_skills():
     out = []
+    # user-level skills
     sd = CLAUDE_DIR / "skills"
     if sd.is_dir():
-        for skill_md in sorted(sd.glob("*/SKILL.md")):
-            m = _read_md_meta(skill_md)
-            if m["name"] in ("SKILL", ""):
-                m["name"] = skill_md.parent.name
-            out.append(m)
+        out.extend(_skills_in(sd, "user"))
+    # skills provided by enabled plugins
+    enabled = {}
+    sp = CLAUDE_DIR / "settings.json"
+    if sp.exists():
+        try:
+            enabled = json.loads(sp.read_text()).get("enabledPlugins", {})
+        except Exception:
+            pass
+    ip = CLAUDE_DIR / "plugins" / "installed_plugins.json"
+    if ip.exists():
+        try:
+            for pname, insts in (json.loads(ip.read_text()).get("plugins") or {}).items():
+                if not enabled.get(pname):
+                    continue  # only enabled plugins are active
+                for inst in insts:
+                    skdir = Path(inst.get("installPath", "")) / "skills"
+                    if skdir.is_dir():
+                        out.extend(_skills_in(skdir, pname.split("@")[0]))
+        except Exception:
+            pass
     return out
 
 
@@ -609,7 +667,7 @@ def read_claude_config():
             "settings": _short_path(CLAUDE_DIR / "settings.json"),
             "mcp": _short_path(CLAUDE_JSON),
             "commands": _short_path(CLAUDE_DIR / "commands") + "/",
-            "skills": _short_path(CLAUDE_DIR / "skills") + "/",
+            "skills": "~/.claude/skills/ + enabled plugins",
             "agents": _short_path(CLAUDE_DIR / "agents") + "/",
             "plugins": _short_path(CLAUDE_DIR / "plugins" / "installed_plugins.json"),
         },
@@ -617,7 +675,7 @@ def read_claude_config():
 
 
 def read_opencode_config():
-    out = {"available": False, "providers": {}, "mcp": {}, "models": []}
+    out = {"available": False, "providers": {}, "mcp": {}, "agents": [], "commands": [], "models": []}
     cfg_file = next(
         (OPENCODE_CONFIG_DIR / n for n in ("opencode.jsonc", "opencode.json")
          if (OPENCODE_CONFIG_DIR / n).exists()),
@@ -637,6 +695,11 @@ def read_opencode_config():
                 name: (_mask_secrets(dict(c)) if isinstance(c, dict) else c)
                 for name, c in (d.get("mcp") or {}).items()
             }
+            for field in ("agent", "command"):
+                out[field + "s"] = [
+                    {"name": n, "description": (c.get("description", "") if isinstance(c, dict) else "")}
+                    for n, c in (d.get(field) or {}).items()
+                ]
             out["available"] = True
         except Exception:
             pass
@@ -684,6 +747,7 @@ def api_sessions():
             {
                 "id": s["id"],
                 "source": s.get("source", "claude"),
+                "entrypoints": s.get("entrypoints", []),
                 "project": s["project"],
                 "cwd": s.get("cwd", ""),
                 "title": s["title"],
@@ -695,6 +759,26 @@ def api_sessions():
             for s in sessions
         ]
     )
+
+
+@app.route("/api/search")
+def api_search():
+    """Full-text search across session bodies. Returns [{id, snippet}]."""
+    q = (request.args.get("q") or "").strip().lower()
+    if not q:
+        return jsonify([])
+    hits = []
+    for s in get_sessions():
+        text = _session_fulltext(s)
+        idx = text.lower().find(q)
+        if idx == -1:
+            if q in s["title"].lower() or q in s["project"].lower():
+                hits.append({"id": s["id"], "snippet": ""})
+            continue
+        start = max(0, idx - 40)
+        seg = text[start:idx + len(q) + 60].replace("\n", " ").strip()
+        hits.append({"id": s["id"], "snippet": ("…" if start else "") + seg + "…"})
+    return jsonify(hits)
 
 
 @app.route("/api/sessions/<session_id>")
@@ -881,6 +965,7 @@ def api_session_delete_command(session_id):
 def api_reload():
     global _sessions_cache
     _sessions_cache = None
+    _fulltext_cache.clear()
     sessions = get_sessions()
     return jsonify({"count": len(sessions)})
 

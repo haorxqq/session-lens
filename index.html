@@ -150,6 +150,7 @@
       font-family: var(--font-sans);
     }
     .search-box input::placeholder { color: var(--text-dim); }
+    .search-box input.searching { opacity: 0.6; }
 
     .filter-group {
       display: flex;
@@ -272,6 +273,16 @@
     }
     .source-badge.claude { color: #c2410c; background: rgba(234, 88, 12, 0.12); }
     .source-badge.opencode { color: #0e7490; background: rgba(8, 145, 178, 0.12); }
+    .origin-badge {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+    }
     .session-date {
       font-size: 10px;
       color: var(--text-dim);
@@ -291,6 +302,23 @@
       -webkit-box-orient: vertical;
       overflow: hidden;
       line-height: 1.4;
+    }
+    .search-snippet {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+    }
+    .search-snippet mark {
+      background: #fff3c4;
+      color: var(--text);
+      border-radius: 2px;
+      padding: 0 1px;
     }
 
     /* ── Content panel ── */
@@ -735,6 +763,10 @@
         <span class="filter-label">Source</span>
         <div class="filter-chips" id="sourceFilter"></div>
       </div>
+      <div class="filter-group" id="originGroup">
+        <span class="filter-label">Origin</span>
+        <div class="filter-chips" id="originFilter"></div>
+      </div>
       <div class="filter-group">
         <span class="filter-label">Project</span>
         <div class="filter-chips" id="projectFilter"></div>
@@ -790,10 +822,17 @@
   let allSessions = [];
   let activeProject = 'all';
   let activeSource = 'all';
+  let activeOrigin = 'all';
   let activeSort = 'recent';  // 'recent' | 'msgs'
   let activeSessionId = null;
 
   const SOURCE_LABELS = { claude: 'Claude', opencode: 'opencode' };
+  const ORIGIN_LABELS = {
+    'cli': '⌨️ CLI',
+    'claude-vscode': '󠁶VS Code',
+    'claude-desktop': '🖥️ Desktop',
+  };
+  const originLabel = (e) => ORIGIN_LABELS[e] || e;
 
   marked.setOptions({
     breaks: true,
@@ -850,6 +889,7 @@
     allSessions = await res.json();
     document.getElementById('sessionCount').textContent = `${allSessions.length} conversations`;
     renderSourceFilter();
+    renderOriginFilter();
     renderProjectFilter();
     renderSessionList();
   }
@@ -878,6 +918,31 @@
       el.classList.toggle('active', el.dataset.source === source);
     });
     renderProjectFilter();  // re-render projects scoped to the new source
+    renderSessionList();
+  }
+
+  function renderOriginFilter() {
+    // Origin only applies to Claude sessions. A session may have several origins
+    // (started in CLI, resumed in VS Code…) — count it under each one it used.
+    const counts = {};
+    allSessions.forEach(s => (s.entrypoints || []).forEach(e => { counts[e] = (counts[e] || 0) + 1; }));
+    const origins = Object.keys(counts).sort();
+    const group = document.getElementById('originGroup');
+    if (origins.length < 2) { group.style.display = 'none'; return; }
+    group.style.display = '';
+    document.getElementById('originFilter').innerHTML = `
+      <span class="filter-chip ${activeOrigin === 'all' ? 'active' : ''}" data-origin="all" onclick="setOrigin('all')">All</span>
+      ${origins.map(o =>
+        `<span class="filter-chip" data-origin="${o}" onclick="setOrigin('${o}')">${originLabel(o)} (${counts[o]})</span>`
+      ).join('')}
+    `;
+  }
+
+  function setOrigin(origin) {
+    activeOrigin = origin;
+    document.querySelectorAll('#originFilter .filter-chip').forEach(el => {
+      el.classList.toggle('active', el.dataset.origin === origin);
+    });
     renderSessionList();
   }
 
@@ -911,7 +976,37 @@
     renderSessionList();
   }
 
+  let searchHits = null;   // null = no active search; else Map(id -> snippet)
+  let searchQuery = '';
+  let searchSeq = 0;
+  let searchTimer = null;
+
   function filterSessions() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(doSearch, 250);
+  }
+
+  async function doSearch() {
+    const input = document.getElementById('searchInput');
+    const q = input.value.trim();
+    searchQuery = q;
+    if (!q) {
+      searchHits = null;
+      renderSessionList();
+      return;
+    }
+    const seq = ++searchSeq;
+    input.classList.add('searching');
+    try {
+      const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const hits = await res.json();
+      if (seq !== searchSeq) return;  // a newer search superseded this one
+      searchHits = new Map(hits.map(h => [h.id, h.snippet]));
+    } catch (e) {
+      searchHits = new Map();
+    } finally {
+      if (seq === searchSeq) input.classList.remove('searching');
+    }
     renderSessionList();
   }
 
@@ -924,11 +1019,13 @@
   }
 
   function getFilteredSessions() {
-    const query = document.getElementById('searchInput').value.toLowerCase().trim();
     return allSessions.filter(s => {
       if (activeSource !== 'all' && s.source !== activeSource) return false;
+      // "used from this origin at least once" semantics — sessions are shared across clients
+      if (activeOrigin !== 'all' && !(s.entrypoints || []).includes(activeOrigin)) return false;
       if (activeProject !== 'all' && s.project !== activeProject) return false;
-      if (query && !s.title.toLowerCase().includes(query) && !s.preview.toLowerCase().includes(query)) return false;
+      // When a search is active, only show backend full-text hits.
+      if (searchQuery && !(searchHits && searchHits.has(s.id))) return false;
       return true;
     });
   }
@@ -952,13 +1049,34 @@
         ${s.cwd ? `<div class="session-path" title="${escHtml(s.cwd)}">${escHtml(s.cwd)}</div>` : ''}
         <div class="session-meta">
           <span class="source-badge ${s.source}">${SOURCE_LABELS[s.source] || s.source}</span>
+          ${(s.entrypoints || []).map(e => `<span class="origin-badge">${originLabel(e)}</span>`).join('')}
           <span class="session-project">${escHtml(s.project)}</span>
           <span class="session-date">${formatDate(s.last_timestamp || s.timestamp)}</span>
           <span class="session-msgs">${s.msg_count} msgs</span>
         </div>
-        ${s.preview ? `<div class="session-preview">${escHtml(s.preview)}</div>` : ''}
+        ${snippetHtml(s)}
       </div>
     `).join('');
+  }
+
+  function snippetHtml(s) {
+    // While searching, show the matched full-text snippet (highlighted); otherwise the preview.
+    if (searchQuery && searchHits) {
+      const snip = searchHits.get(s.id);
+      if (snip) return `<div class="search-snippet">${highlight(snip, searchQuery)}</div>`;
+      return '';  // matched on title/project only — no body snippet
+    }
+    return s.preview ? `<div class="session-preview">${escHtml(s.preview)}</div>` : '';
+  }
+
+  function highlight(text, query) {
+    const lc = text.toLowerCase(), q = query.toLowerCase();
+    let out = '', i = 0, idx;
+    while ((idx = lc.indexOf(q, i)) !== -1) {
+      out += escHtml(text.slice(i, idx)) + '<mark>' + escHtml(text.slice(idx, idx + q.length)) + '</mark>';
+      i = idx + q.length;
+    }
+    return out + escHtml(text.slice(i));
   }
 
   function escHtml(str) {
