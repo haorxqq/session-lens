@@ -740,7 +740,7 @@
   <div class="header-spacer"></div>
   <span class="session-count" id="sessionCount">Loading...</span>
   <a class="reload-btn" href="/config" style="text-decoration:none">⚙️ Config</a>
-  <button class="reload-btn" onclick="reloadSessions()">↻ Refresh</button>
+  <button id="refresh-btn" class="reload-btn" onclick="reloadSessions()">↻ Refresh</button>
 </div>
 
 <div class="main">
@@ -1382,7 +1382,7 @@
   }
 
   async function reloadSessions() {
-    const btn = document.querySelector('.reload-btn');
+    const btn = document.getElementById('refresh-btn');
     btn.textContent = '↻ Refreshing...';
     btn.disabled = true;
     try {
