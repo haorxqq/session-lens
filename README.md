@@ -11,7 +11,7 @@ No cloud. No database to set up. No build step. **One Python file + one HTML fil
 ## Why you'll keep it open in a tab
 
 - 🔍 **Full-text search across every conversation** — not just titles. That command you vaguely remember Claude running three weeks ago? Type any fragment and get highlighted match snippets instantly.
-- 🗂️ **Everything in one place** — aggregates Claude Code (`~/.claude/projects/*.jsonl`) and opencode (SQLite) sessions side by side, with cascading filters: source → origin → project, plus sort by recency or message count.
+- 🗂️ **Everything in one place** — aggregates Claude Code (`~/.claude/projects/*.jsonl`), opencode (SQLite), Trae CLI (rollout JSONL) and Codex (SQLite) sessions side by side, with cascading filters: source → origin → project, plus sort by recency or message count.
 - 💬 **Transcripts that are actually readable** — chat-style layout (you on the right, AI on the left), full Markdown + syntax highlighting, collapsible **Thinking** and **Tool result** blocks. Auto-scrolls to the latest message.
 - ⚡ **One-click resume** — reopen any session in a real terminal, already `cd`'d into the original working directory. Or copy the command and paste it anywhere.
 - 🏷️ **Knows where sessions came from** — CLI, VS Code, or Desktop badges per session (and yes, it correctly handles sessions you started in one and resumed in another).
@@ -35,6 +35,8 @@ Works on **macOS, Linux, Windows, and WSL**. Requires Python 3.10+.
 |--------|----------|
 | Claude Code | `~/.claude/projects/` (auto-resolved on every OS) |
 | opencode | via `opencode db path` → `OPENCODE_DB` env var → known fallbacks |
+| Trae CLI | `~/.trae/cli/sessions/YYYY/MM/DD/rollout-*.jsonl` (+ titles in `~/.trae/cli/session_index.jsonl`) |
+| Codex | `~/.codex/thread_history_*.sqlite` |
 
 Everything is read directly and read-only — nothing is copied, uploaded, or modified. Hit **Refresh** to re-scan after new conversations.
 

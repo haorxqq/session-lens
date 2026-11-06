@@ -273,6 +273,9 @@
     }
     .source-badge.claude { color: #c2410c; background: rgba(234, 88, 12, 0.12); }
     .source-badge.opencode { color: #0e7490; background: rgba(8, 145, 178, 0.12); }
+    .source-badge.trae { color: #6d28d9; background: rgba(124, 58, 237, 0.12); }
+    .source-badge.codex { color: #0369a1; background: rgba(14, 165, 233, 0.12); }
+    .source-badge.copilot { color: #1f6feb; background: rgba(31, 111, 235, 0.12); }
     .origin-badge {
       font-size: 9px;
       font-weight: 600;
@@ -826,13 +829,37 @@
   let activeSort = 'recent';  // 'recent' | 'msgs'
   let activeSessionId = null;
 
-  const SOURCE_LABELS = { claude: 'Claude', opencode: 'opencode' };
-  const ORIGIN_LABELS = {
-    'cli': '⌨️ CLI',
-    'claude-vscode': '󠁶VS Code',
-    'claude-desktop': '🖥️ Desktop',
+  const SOURCE_LABELS = { claude: 'Claude', opencode: 'opencode', trae: 'Trae CLI', codex: 'Codex', copilot: 'Copilot' };
+  const ORIGIN_GROUPS = {
+    'cli':                 { key: 'cli',          label: '⌨️ CLI' },
+    'copilot-cli':         { key: 'cli',          label: '⌨️ CLI' },
+    'codex-cli':           { key: 'cli',          label: '⌨️ CLI' },
+    'trae-cli':            { key: 'cli',          label: '⌨️ CLI' },
+    'claude-vscode':       { key: 'vscode',       label: 'VS Code' },
+    'copilot-vscode':      { key: 'vscode',       label: 'VS Code' },
+    'codex-vscode':        { key: 'vscode',       label: 'VS Code' },
+    'trae-vscode':         { key: 'vscode',       label: 'VS Code' },
+    'claude-desktop':      { key: 'desktop',      label: '🖥️ Desktop' },
+    'codex-desktop':       { key: 'desktop',      label: '🖥️ Desktop' },
+    'trae-desktop':        { key: 'desktop',      label: '🖥️ Desktop' },
+    'codex-work-desktop':  { key: 'work-desktop', label: '💼 Work Desktop' },
+    'codex-chrome':        { key: 'chrome',       label: '🌐 Chrome' },
   };
-  const originLabel = (e) => ORIGIN_LABELS[e] || e;
+  const ORIGIN_ORDER = ['cli', 'vscode', 'desktop', 'work-desktop', 'chrome'];
+  const ORIGIN_GROUP_LABELS = Object.fromEntries(
+    Object.values(ORIGIN_GROUPS).map(g => [g.key, g.label])
+  );
+  const originGroup = (e) => (ORIGIN_GROUPS[e] || { key: e, label: ORIGIN_GROUP_LABELS[e] || e });
+  const originLabel = (e) => originGroup(e).label;
+  // Distinct client groups a session was used from (a session may have several).
+  function sessionOrigins(s) {
+    const keys = [];
+    (s.entrypoints || []).forEach(e => {
+      const k = originGroup(e).key;
+      if (!keys.includes(k)) keys.push(k);
+    });
+    return keys;
+  }
 
   marked.setOptions({
     breaks: true,
@@ -913,20 +940,28 @@
 
   function setSource(source) {
     activeSource = source;
-    activeProject = 'all';  // reset second-level filter when source changes
+    activeProject = 'all';  // reset second-level filters when source changes
+    activeOrigin = 'all';
     document.querySelectorAll('#sourceFilter .filter-chip').forEach(el => {
       el.classList.toggle('active', el.dataset.source === source);
     });
+    renderOriginFilter();   // origins differ per source — re-render scoped chips
     renderProjectFilter();  // re-render projects scoped to the new source
     renderSessionList();
   }
 
   function renderOriginFilter() {
-    // Origin only applies to Claude sessions. A session may have several origins
-    // (started in CLI, resumed in VS Code…) — count it under each one it used.
+    // Origins are scoped to the selected source (cascading filter). A session
+    // may have several origins (started in CLI, resumed in VS Code…) — count
+    // it under each distinct client group it used.
     const counts = {};
-    allSessions.forEach(s => (s.entrypoints || []).forEach(e => { counts[e] = (counts[e] || 0) + 1; }));
-    const origins = Object.keys(counts).sort();
+    allSessions.forEach(s => {
+      if (activeSource !== 'all' && s.source !== activeSource) return;
+      sessionOrigins(s).forEach(k => { counts[k] = (counts[k] || 0) + 1; });
+    });
+    const origins = Object.keys(counts).sort(
+      (a, b) => (ORIGIN_ORDER.indexOf(a) + 1 || 99) - (ORIGIN_ORDER.indexOf(b) + 1 || 99)
+    );
     const group = document.getElementById('originGroup');
     if (origins.length < 2) { group.style.display = 'none'; return; }
     group.style.display = '';
@@ -1021,8 +1056,9 @@
   function getFilteredSessions() {
     return allSessions.filter(s => {
       if (activeSource !== 'all' && s.source !== activeSource) return false;
-      // "used from this origin at least once" semantics — sessions are shared across clients
-      if (activeOrigin !== 'all' && !(s.entrypoints || []).includes(activeOrigin)) return false;
+      // "used from this client at least once" semantics — sessions are shared
+      // across clients, so match against the collapsed client groups.
+      if (activeOrigin !== 'all' && !sessionOrigins(s).includes(activeOrigin)) return false;
       if (activeProject !== 'all' && s.project !== activeProject) return false;
       // When a search is active, only show backend full-text hits.
       if (searchQuery && !(searchHits && searchHits.has(s.id))) return false;
@@ -1049,7 +1085,7 @@
         ${s.cwd ? `<div class="session-path" title="${escHtml(s.cwd)}">${escHtml(s.cwd)}</div>` : ''}
         <div class="session-meta">
           <span class="source-badge ${s.source}">${SOURCE_LABELS[s.source] || s.source}</span>
-          ${(s.entrypoints || []).map(e => `<span class="origin-badge">${originLabel(e)}</span>`).join('')}
+          ${sessionOrigins(s).map(k => `<span class="origin-badge">${originLabel(k)}</span>`).join('')}
           <span class="session-project">${escHtml(s.project)}</span>
           <span class="session-date">${formatDate(s.last_timestamp || s.timestamp)}</span>
           <span class="session-msgs">${s.msg_count} msgs</span>
@@ -1188,6 +1224,12 @@
   function buildResumeCommand(s) {
     const inner = s.source === 'opencode'
       ? `opencode --session ${s.id}`
+      : s.source === 'trae'
+      ? `trae-cli resume ${s.id}`
+      : s.source === 'codex'
+      ? `codex resume ${s.id}`
+      : s.source === 'copilot'
+      ? `copilot --resume ${s.id}`
       : `claude --resume ${s.id}`;
     return s.cwd ? `cd ${shQuote(s.cwd)} && ${inner}` : inner;
   }
@@ -1262,8 +1304,15 @@
     header.style.display = 'block';
     document.getElementById('contentTitle').textContent = data.title;
     const srcLabel = SOURCE_LABELS[data.source] || data.source;
+    const canResume = data.resumable !== false;
+    document.getElementById('resumeBtn').style.display = canResume ? '' : 'none';
+    document.getElementById('copyCmdBtn').style.display = canResume ? '' : 'none';
+    document.getElementById('renameBtn').style.display = '';
+    document.getElementById('deleteBtn').style.display = '';
     document.getElementById('contentProject').innerHTML =
-      `<span class="source-badge ${data.source}">${srcLabel}</span> 📁 ${escHtml(data.project)}`;
+      `<span class="source-badge ${data.source}">${srcLabel}</span>` +
+      (canResume ? '' : ' <span class="origin-badge">read-only</span>') +
+      ` 📁 ${escHtml(data.project)}`;
     document.getElementById('contentDate').textContent = formatFullDate(data.timestamp);
     document.getElementById('contentMsgCount').textContent = `${data.messages.length} messages`;
 
